@@ -326,6 +326,48 @@ export function usePublishPlans() {
     }
   }
 
+  async function removeClipFromAllPlans(clipId: string): Promise<void> {
+    const affected: PublishPlan[] = [];
+    for (let i = 0; i < plans.value.length; i++) {
+      const plan = plans.value[i];
+      if (!plan.clips.some(c => c.clipId === clipId)) continue;
+      const filtered = plan.clips.filter(c => c.clipId !== clipId);
+      const reindexed = filtered.map((c, idx) => ({ ...c, sortOrder: idx }));
+      const updated: PublishPlan = {
+        ...plan,
+        clips: reindexed,
+        updatedAt: new Date().toISOString(),
+      };
+      await updatePlan(updated);
+      plans.value[i] = updated;
+      if (currentPlan.value?.id === plan.id) {
+        currentPlan.value = updated;
+      }
+      affected.push(updated);
+    }
+    return;
+  }
+
+  async function removeClipsFromAllPlans(clipIds: string[]): Promise<void> {
+    const idSet = new Set(clipIds);
+    for (let i = 0; i < plans.value.length; i++) {
+      const plan = plans.value[i];
+      if (!plan.clips.some(c => idSet.has(c.clipId))) continue;
+      const filtered = plan.clips.filter(c => !idSet.has(c.clipId));
+      const reindexed = filtered.map((c, idx) => ({ ...c, sortOrder: idx }));
+      const updated: PublishPlan = {
+        ...plan,
+        clips: reindexed,
+        updatedAt: new Date().toISOString(),
+      };
+      await updatePlan(updated);
+      plans.value[i] = updated;
+      if (currentPlan.value?.id === plan.id) {
+        currentPlan.value = updated;
+      }
+    }
+  }
+
   async function updateClipChapter(planId: string, clipId: string, chapterType: ChapterType): Promise<void> {
     const idx = plans.value.findIndex(p => p.id === planId);
     if (idx === -1) return;
@@ -399,6 +441,8 @@ export function usePublishPlans() {
     addClipToPlan,
     addClipsToPlan,
     removeClipFromPlan,
+    removeClipFromAllPlans,
+    removeClipsFromAllPlans,
     updateClipChapter,
     reorderPlanClips,
     isClipInAnyPlan,

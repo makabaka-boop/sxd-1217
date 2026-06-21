@@ -9,6 +9,7 @@ import {
   deleteClip,
   deleteClipsBulk,
 } from './useDatabase';
+import { usePublishPlans } from './usePublishPlans';
 
 const clips = ref<Clip[]>([]);
 const isLoading = ref(false);
@@ -26,6 +27,8 @@ const filters = reactive<FilterOptions>({
 let nextSortOrder = 0;
 
 export function useClips() {
+  const { removeClipFromAllPlans, removeClipsFromAllPlans } = usePublishPlans();
+
   const allTopics = computed(() => {
     const set = new Set<string>();
     clips.value.forEach(c => c.topic && set.add(c.topic));
@@ -124,6 +127,7 @@ export function useClips() {
     await deleteClip(id);
     clips.value = clips.value.filter(c => c.id !== id);
     selectedIds.value.delete(id);
+    await removeClipFromAllPlans(id);
   }
 
   async function removeSelectedClips(): Promise<void> {
@@ -132,6 +136,7 @@ export function useClips() {
     await deleteClipsBulk(ids);
     clips.value = clips.value.filter(c => !selectedIds.value.has(c.id));
     selectedIds.value.clear();
+    await removeClipsFromAllPlans(ids);
   }
 
   async function duplicateClipAsAlternate(id: string): Promise<Clip | null> {
