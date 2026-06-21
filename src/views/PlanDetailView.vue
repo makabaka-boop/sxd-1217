@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router';
 import {
   ArrowLeft, Edit3, Clock, Layers, CheckCircle2,
   FileJson, FileSpreadsheet, ChevronDown, Play, Flag,
+  AlertCircle, AlertTriangle, Info, X,
 } from 'lucide-vue-next';
 import { useClips } from '@/composables/useClips';
 import { usePublishPlans } from '@/composables/usePublishPlans';
@@ -11,7 +12,13 @@ import { useExport } from '@/composables/useExport';
 import PlanStatsPanel from '@/components/PlanStatsPanel.vue';
 import PlanClipArranger from '@/components/PlanClipArranger.vue';
 import PlanEditor from '@/components/PlanEditor.vue';
-import type { PublishPlan, ChapterType, PlanStatus } from '@/types';
+import type {
+  PublishPlan,
+  ChapterType,
+  PlanStatus,
+  QualityProblem,
+  PublishBlocker,
+} from '@/types';
 import {
   formatDuration,
   PLAN_STATUSES,
@@ -36,6 +43,9 @@ const {
   getRiskDistribution,
   getPublishProgress,
   getPlanWarnings,
+  getQualitySnapshot,
+  getClipProblemMap,
+  getPublishBlockers,
   removeClipFromPlan,
   updateClipChapter,
   reorderPlanClips,
@@ -45,6 +55,9 @@ const { exportPlanToJSON, exportPlanToCSV } = useExport();
 const showPlanEditor = ref(false);
 const showStatusMenu = ref(false);
 const showExportMenu = ref(false);
+const showPublishConfirmDialog = ref(false);
+const pendingStatus = ref<PlanStatus | null>(null);
+const highlightClipIds = ref<string[]>([]);
 
 const planId = computed(() => route.params.id as string);
 
@@ -83,6 +96,48 @@ const planWarnings = computed(() => {
   return getPlanWarnings(currentPlan.value, clips.value);
 });
 
+const qualitySnapshot = computed(() => {
+  if (!currentPlan.value) {
+    return {
+      errorCount: 0,
+      warningCount: 0,
+      infoCount: 0,
+      totalCount: 0,
+      worstSeverity: null,
+      problems: [],
+    };
+  }
+  return getQualitySnapshot(currentPlan.value, clips.value);
+});
+
+const clipProblemMap = computed(() => {
+  if (!currentPlan.value) return {};
+  return getClipProblemMap(currentPlan.value, clips.value);
+});
+
+const publishBlockers = computed((): PublishBlocker[] => {
+  if (!currentPlan.value) return [];
+  return getPublishBlockers(currentPlan.value, clips.value);
+});
+
+const hasCriticalBlockers = computed(() => {
+  return publishBlockers.value.some(b => b.severity === 'error');
+});
+
+function handleLocateProblem(problem: QualityProblem) {
+  highlightClipIds.value = [...problem.clipIds];
+  setTimeout(() => {
+    highlightClipIds.value = [];
+  }, 3000);
+}
+
+function handleLocateClip(clipId: string) {
+  highlightClipIds.value = [clipId];
+  setTimeout(() => {
+    highlightClipIds.value = [];
+  }, 3000);
+}
+
 async function handleReorder(clipIds: string[]) {
   if (!currentPlan.value) return;
   await reorderPlanClips(currentPlan.value.id, clipIds);
@@ -106,8 +161,38 @@ async function handlePlanEditorSubmit(data: { title: string; publishTitle: strin
 
 async function handleStatusChange(status: PlanStatus) {
   if (!currentPlan.value) return;
+
+  if (status === '待发布' || status === '已发布') {
+    const blockers = getPublishBlockers(currentPlan.value, clips.value);
+    if (blockers.length > 0) {
+      pendingStatus.value = status;
+      showPublishConfirmDialog.value = true;
+      showStatusMenu.value = false;
+      return;
+    }
+  }
+
   await setPlanStatus(currentPlan.value.id, status);
   showStatusMenu.value = false;
+}
+
+async function confirmStatusChange() {
+  if (!currentPlan.value || !pendingStatus.value) return;
+  await setPlanStatus(currentPlan.value.id, pendingStatus.value);
+  showPublishConfirmDialog.value = false;
+  pendingStatus.value = null;
+}
+
+function cancelStatusChange() {
+  showPublishConfirmDialog.value = false;
+  pendingStatus.value = null;
+}
+
+function handleBlockerLocate(clipIds: string[]) {
+  highlightClipIds.value = [...clipIds];
+  setTimeout(() => {
+    highlightClipIds.value = [];
+  }, 3000);
 }
 
 function handleExportJSON() {
@@ -304,6 +389,8 @@ watch(planId, async (newId) => {
           </h3>
           <PlanClipArranger
             :clips="planClips"
+            :highlight-clip-ids="highlightClipIds"
+            :clip-problems="clipProblemMap"
             @reorder="handleReorder"
             @remove="handleRemoveClip"
             @change-chapter="handleChangeChapter"
@@ -317,6 +404,9 @@ watch(planId, async (newId) => {
           :topic-distribution="topicDistribution"
           :risk-distribution="riskDistribution"
           :warnings="planWarnings"
+          :quality-snapshot="qualitySnapshot"
+          @locate-problem="handleLocateProblem"
+          @locate-clip="handleLocateClip"
         />
       </div>
     </div>
@@ -330,6 +420,109 @@ watch(planId, async (newId) => {
       :plan="currentPlan"
       @submit="handlePlanEditorSubmit"
     />
+
+    <Teleport to="body">
+      <Transition name="modal">
+        <div
+          v-if="showPublishConfirmDialog"
+          class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-graphite-900/80 backdrop-blur-sm"
+          @click.self="cancelStatusChange"
+        >
+          <div class="card p-6 w-full max-w-lg animate-fade-in">
+            <div class="flex items-start justify-between mb-4">
+              <div class="flex items-center gap-3">
+                <div
+                  class="p-2.5 rounded-xl"
+                  :class="hasCriticalBlockers ? 'bg-danger/15' : 'bg-warning/15'"
+                >
+                  <component
+                    :is="hasCriticalBlockers ? AlertCircle : AlertTriangle"
+                    class="w-6 h-6"
+                    :class="hasCriticalBlockers ? 'text-danger' : 'text-warning'"
+                  />
+                </div>
+                <div>
+                  <h3 class="font-display text-lg font-semibold text-graphite-50">
+                    {{ hasCriticalBlockers ? '存在严重问题' : '发布前检查' }}
+                  </h3>
+                  <p class="text-sm text-graphite-400">
+                    将状态切换为「{{ pendingStatus }}」前请注意以下问题
+                  </p>
+                </div>
+              </div>
+              <button
+                class="p-1.5 rounded-lg hover:bg-graphite-700 text-graphite-400 hover:text-graphite-100 transition-colors"
+                @click="cancelStatusChange"
+              >
+                <X class="w-5 h-5" />
+              </button>
+            </div>
+
+            <div class="space-y-2 mb-6 max-h-[320px] overflow-y-auto scrollbar-thin">
+              <div
+                v-for="blocker in publishBlockers"
+                :key="blocker.type"
+                class="flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-all hover:scale-[1.01]"
+                :class="blocker.severity === 'error'
+                  ? 'bg-danger/10 border-danger/30'
+                  : blocker.severity === 'warning'
+                    ? 'bg-warning/10 border-warning/30'
+                    : 'bg-info/10 border-info/30'"
+                @click="handleBlockerLocate(blocker.clipIds)"
+              >
+                <component
+                  :is="blocker.severity === 'error' ? AlertCircle : blocker.severity === 'warning' ? AlertTriangle : Info"
+                  class="w-5 h-5 mt-0.5 shrink-0"
+                  :class="blocker.severity === 'error'
+                    ? 'text-danger'
+                    : blocker.severity === 'warning'
+                      ? 'text-warning'
+                      : 'text-info'"
+                />
+                <div class="flex-1 min-w-0">
+                  <div
+                    class="text-sm font-medium mb-0.5"
+                    :class="blocker.severity === 'error'
+                      ? 'text-danger'
+                      : blocker.severity === 'warning'
+                        ? 'text-warning'
+                        : 'text-info'"
+                  >
+                    {{ blocker.type === 'high_risk'
+                      ? '高风险片段'
+                      : blocker.type === 'review_missing_remark'
+                        ? '需复听未备注'
+                        : blocker.type === 'time_abnormal'
+                          ? '时间异常'
+                          : '未就绪片段' }}
+                  </div>
+                  <div class="text-xs text-graphite-300">{{ blocker.message }}</div>
+                  <div class="text-[11px] text-graphite-500 mt-1">
+                    涉及 {{ blocker.clipIds.length }} 个片段 · 点击定位
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="flex items-center justify-end gap-3">
+              <button
+                class="btn-secondary"
+                @click="cancelStatusChange"
+              >
+                取消
+              </button>
+              <button
+                class="btn-primary"
+                :class="hasCriticalBlockers ? 'bg-danger hover:bg-danger/90' : ''"
+                @click="confirmStatusChange"
+              >
+                {{ hasCriticalBlockers ? '确认继续（有风险）' : '确认切换' }}
+              </button>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
   </div>
 </template>
 
@@ -342,5 +535,18 @@ watch(planId, async (newId) => {
 .dropdown-leave-to {
   opacity: 0;
   transform: translateY(-6px);
+}
+
+.modal-enter-active,
+.modal-leave-active {
+  transition: all 0.2s ease;
+}
+.modal-enter-from,
+.modal-leave-to {
+  opacity: 0;
+}
+.modal-enter-from > div,
+.modal-leave-to > div {
+  transform: scale(0.95) translateY(10px);
 }
 </style>

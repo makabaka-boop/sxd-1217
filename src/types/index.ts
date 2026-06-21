@@ -74,6 +74,32 @@ export interface PlanWarning {
   clipIds?: string[];
 }
 
+export interface QualitySnapshot {
+  errorCount: number;
+  warningCount: number;
+  infoCount: number;
+  totalCount: number;
+  worstSeverity: ProblemSeverity | null;
+  problems: QualityProblem[];
+}
+
+export interface PublishBlocker {
+  type: 'high_risk' | 'review_missing_remark' | 'time_abnormal' | 'not_ready';
+  severity: ProblemSeverity;
+  message: string;
+  clipIds: string[];
+}
+
+export interface ClipProblemInfo {
+  clipId: string;
+  problems: {
+    severity: ProblemSeverity;
+    type: string;
+    message: string;
+  }[];
+  worstSeverity: ProblemSeverity | null;
+}
+
 export interface ChapterStats {
   type: ChapterType;
   count: number;

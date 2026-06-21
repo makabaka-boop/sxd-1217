@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import { Calendar, Clock, Layers, Edit3, Trash2, ChevronRight, CheckCircle2 } from 'lucide-vue-next';
-import type { PublishPlan, Clip } from '@/types';
+import { Calendar, Clock, Layers, Edit3, Trash2, ChevronRight, CheckCircle2, AlertCircle, AlertTriangle, Info } from 'lucide-vue-next';
+import type { PublishPlan, Clip, QualitySnapshot } from '@/types';
 import { PLAN_STATUS_CONFIG, formatDuration } from '@/types';
 
 const props = defineProps<{
@@ -9,7 +9,20 @@ const props = defineProps<{
   allClips: Clip[];
   planDuration: number;
   progress: { ready: number; total: number; percent: number };
+  qualitySnapshot: QualitySnapshot;
 }>();
+
+const worstSeverityConfig = computed(() => {
+  if (props.qualitySnapshot.worstSeverity) {
+    const configs: Record<string, { icon: typeof AlertCircle; color: string; label: string }> = {
+      error: { icon: AlertCircle, color: 'text-danger', label: '高风险' },
+      warning: { icon: AlertTriangle, color: 'text-warning', label: '中风险' },
+      info: { icon: Info, color: 'text-info', label: '有提示' },
+    };
+    return configs[props.qualitySnapshot.worstSeverity];
+  }
+  return null;
+});
 
 const emit = defineEmits<{
   'edit': [];
@@ -76,7 +89,7 @@ function formatDate(iso: string): string {
       </div>
     </div>
 
-    <div>
+    <div class="mb-3">
       <div class="flex items-center justify-between text-xs mb-1.5">
         <span class="text-graphite-400 flex items-center gap-1.5">
           <CheckCircle2 class="w-3.5 h-3.5 text-success" />
@@ -95,8 +108,53 @@ function formatDate(iso: string): string {
     </div>
 
     <div
+      v-if="qualitySnapshot.totalCount > 0"
+      class="mb-3 p-2.5 rounded-lg border"
+      :class="qualitySnapshot.worstSeverity === 'error'
+        ? 'border-danger/30 bg-danger/5'
+        : qualitySnapshot.worstSeverity === 'warning'
+          ? 'border-warning/30 bg-warning/5'
+          : 'border-info/30 bg-info/5'"
+    >
+      <div class="flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <component
+            v-if="worstSeverityConfig"
+            :is="worstSeverityConfig.icon"
+            class="w-3.5 h-3.5"
+            :class="worstSeverityConfig.color"
+          />
+          <span class="text-xs font-medium" :class="worstSeverityConfig?.color || 'text-graphite-400'">
+            质检快照
+          </span>
+        </div>
+        <div class="flex items-center gap-2 text-xs">
+          <span v-if="qualitySnapshot.errorCount > 0" class="text-danger font-semibold">
+            {{ qualitySnapshot.errorCount }} 错误
+          </span>
+          <span v-if="qualitySnapshot.warningCount > 0" class="text-warning font-semibold">
+            {{ qualitySnapshot.warningCount }} 警告
+          </span>
+          <span v-if="qualitySnapshot.infoCount > 0" class="text-info font-semibold">
+            {{ qualitySnapshot.infoCount }} 提示
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <div
+      v-else
+      class="mb-3 p-2.5 rounded-lg border border-success/30 bg-success/5"
+    >
+      <div class="flex items-center gap-2">
+        <CheckCircle2 class="w-3.5 h-3.5 text-success" />
+        <span class="text-xs font-medium text-success">质检通过</span>
+      </div>
+    </div>
+
+    <div
       v-if="plan.remark"
-      class="mt-3 text-xs text-graphite-400 bg-graphite-900/40 rounded-lg px-3 py-2 line-clamp-2"
+      class="text-xs text-graphite-400 bg-graphite-900/40 rounded-lg px-3 py-2 line-clamp-2"
     >
       {{ plan.remark }}
     </div>

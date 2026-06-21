@@ -11,6 +11,10 @@ import type {
   RiskDistribution,
   PlanWarning,
   PlanStatus,
+  QualitySnapshot,
+  PublishBlocker,
+  QualityProblem,
+  ProblemSeverity,
 } from '@/types';
 import {
   generatePlanId,
@@ -24,6 +28,7 @@ import {
   updatePlan,
   deletePlan,
 } from './useDatabase';
+import { useQualityCheck } from './useQualityCheck';
 
 const plans = ref<PublishPlan[]>([]);
 const isLoadingPlans = ref(false);
@@ -259,6 +264,96 @@ export function usePublishPlans() {
     return warnings.sort((a, b) => sevOrder[a.severity] - sevOrder[b.severity]);
   }
 
+  function getQualitySnapshot(plan: PublishPlan, allClips: Clip[]): QualitySnapshot {
+    const entries = getPlanClips(plan, allClips);
+    const planClips = entries.map(e => e.clip);
+    const { problems, problemCounts, getWorstSeverity } = useQualityCheck(() => planClips);
+
+    let worstSeverity: ProblemSeverity | null = null;
+    for (const clip of planClips) {
+      const clipWorst = getWorstSeverity(clip.id);
+      if (clipWorst === 'error') {
+        worstSeverity = 'error';
+        break;
+      }
+      if (clipWorst === 'warning' && worstSeverity !== 'error') {
+        worstSeverity = 'warning';
+      }
+      if (clipWorst === 'info' && worstSeverity === null) {
+        worstSeverity = 'info';
+      }
+    }
+
+    return {
+      errorCount: problemCounts.value.error,
+      warningCount: problemCounts.value.warning,
+      infoCount: problemCounts.value.info,
+      totalCount: problemCounts.value.total,
+      worstSeverity,
+      problems: problems.value,
+    };
+  }
+
+  function getClipProblemMap(plan: PublishPlan, allClips: Clip[]): Record<string, QualityProblem[]> {
+    const entries = getPlanClips(plan, allClips);
+    const planClips = entries.map(e => e.clip);
+    const { clipProblemMap } = useQualityCheck(() => planClips);
+    return clipProblemMap.value;
+  }
+
+  function getPublishBlockers(plan: PublishPlan, allClips: Clip[]): PublishBlocker[] {
+    const blockers: PublishBlocker[] = [];
+    const entries = getPlanClips(plan, allClips);
+    const qualitySnapshot = getQualitySnapshot(plan, allClips);
+
+    const highRiskClips = entries.filter(e => e.clip.riskLevel === '高风险');
+    if (highRiskClips.length > 0) {
+      blockers.push({
+        type: 'high_risk',
+        severity: 'error',
+        message: `存在 ${highRiskClips.length} 个高风险片段，发布前请再次确认`,
+        clipIds: highRiskClips.map(e => e.clip.id),
+      });
+    }
+
+    const reviewMissingRemarkClips = entries.filter(
+      e => e.clip.publishStatus === '需复听' && (!e.clip.remark || !e.clip.remark.trim()),
+    );
+    if (reviewMissingRemarkClips.length > 0) {
+      blockers.push({
+        type: 'review_missing_remark',
+        severity: 'warning',
+        message: `${reviewMissingRemarkClips.length} 个需复听片段缺少备注说明`,
+        clipIds: reviewMissingRemarkClips.map(e => e.clip.id),
+      });
+    }
+
+    const timeAbnormalProblems = qualitySnapshot.problems.filter(
+      p => p.type === '起止时间倒置' || p.type === '时间重叠',
+    );
+    if (timeAbnormalProblems.length > 0) {
+      const affectedClipIds = [...new Set(timeAbnormalProblems.flatMap(p => p.clipIds))];
+      blockers.push({
+        type: 'time_abnormal',
+        severity: 'error',
+        message: `存在 ${timeAbnormalProblems.length} 处时间异常（起止时间倒置或重叠）`,
+        clipIds: affectedClipIds,
+      });
+    }
+
+    const notReadyClips = entries.filter(e => e.clip.publishStatus !== '已剪辑');
+    if (notReadyClips.length > 0) {
+      blockers.push({
+        type: 'not_ready',
+        severity: 'info',
+        message: `${notReadyClips.length} 个片段尚未标记为「已剪辑」`,
+        clipIds: notReadyClips.map(e => e.clip.id),
+      });
+    }
+
+    return blockers;
+  }
+
   async function addClipToPlan(planId: string, clipId: string, chapterType: ChapterType = '主内容'): Promise<void> {
     const idx = plans.value.findIndex(p => p.id === planId);
     if (idx === -1) return;
@@ -438,6 +533,9 @@ export function usePublishPlans() {
     getRiskDistribution,
     getPublishProgress,
     getPlanWarnings,
+    getQualitySnapshot,
+    getClipProblemMap,
+    getPublishBlockers,
     addClipToPlan,
     addClipsToPlan,
     removeClipFromPlan,

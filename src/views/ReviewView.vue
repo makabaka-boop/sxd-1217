@@ -31,6 +31,7 @@ const {
   getRiskDistribution,
   getPublishProgress,
   getPlanWarnings,
+  getQualitySnapshot,
 } = usePublishPlans();
 const { exportToJSON, exportToCSV, exportFullBackup, exportPlanToJSON, exportPlanToCSV } = useExport();
 
@@ -75,6 +76,20 @@ const planRiskDistribution = computed(() => {
 const planWarnings = computed(() => {
   if (!selectedPlan.value) return [];
   return getPlanWarnings(selectedPlan.value, clips.value);
+});
+
+const planQualitySnapshot = computed(() => {
+  if (!selectedPlan.value) {
+    return {
+      errorCount: 0,
+      warningCount: 0,
+      infoCount: 0,
+      totalCount: 0,
+      worstSeverity: null,
+      problems: [],
+    };
+  }
+  return getQualitySnapshot(selectedPlan.value, clips.value);
 });
 
 const planHighRiskCount = computed(() =>
@@ -735,6 +750,7 @@ onMounted(async () => {
             :topic-distribution="planTopicDistribution"
             :risk-distribution="planRiskDistribution"
             :warnings="planWarnings"
+            :quality-snapshot="planQualitySnapshot"
           />
         </div>
       </div>

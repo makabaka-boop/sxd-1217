@@ -21,6 +21,7 @@ const {
   removePlan,
   calcPlanDuration,
   getPublishProgress,
+  getQualitySnapshot,
 } = usePublishPlans();
 const { exportPlanToJSON, exportPlanToCSV } = useExport();
 
@@ -34,6 +35,10 @@ function planDurations(plan: PublishPlan): number {
 
 function planProgress(plan: PublishPlan) {
   return getPublishProgress(plan, clips.value);
+}
+
+function planQualitySnapshot(plan: PublishPlan) {
+  return getQualitySnapshot(plan, clips.value);
 }
 
 function openCreatePlan() {
@@ -130,6 +135,7 @@ onMounted(async () => {
           :all-clips="clips"
           :plan-duration="planDurations(plan)"
           :progress="planProgress(plan)"
+          :quality-snapshot="planQualitySnapshot(plan)"
           @edit="openEditPlan(plan)"
           @delete="handleDeletePlan(plan)"
           @open="openPlanDetail(plan)"

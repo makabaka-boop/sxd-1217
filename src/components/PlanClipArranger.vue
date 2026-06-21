@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { ref, watch, computed, nextTick } from 'vue';
+import { ref, watch, computed, nextTick, onMounted } from 'vue';
 import draggable from 'vuedraggable';
 import {
   GripVertical, X, Play, Layers, ArrowRight, Flag,
   AlertCircle, AlertTriangle, Info, Clock, Tag, Mic, Trash2,
 } from 'lucide-vue-next';
-import type { PlanClipWithDetail, ChapterType } from '@/types';
+import type { PlanClipWithDetail, ChapterType, QualityProblem, ProblemSeverity } from '@/types';
 import {
   CHAPTER_TYPES,
   CHAPTER_CONFIG,
@@ -17,6 +17,8 @@ import {
 
 const props = defineProps<{
   clips: PlanClipWithDetail[];
+  highlightClipIds?: string[];
+  clipProblems?: Record<string, QualityProblem[]>;
 }>();
 
 const emit = defineEmits<{
@@ -24,6 +26,57 @@ const emit = defineEmits<{
   'remove': [clipId: string];
   'change-chapter': [clipId: string, chapterType: ChapterType];
 }>();
+
+const clipElements = ref<Record<string, HTMLElement | null>>({});
+
+function setClipElement(clipId: string, el: any) {
+  if (el && el.$el) {
+    clipElements.value[clipId] = el.$el;
+  } else if (el) {
+    clipElements.value[clipId] = el;
+  }
+}
+
+function getWorstSeverityForClip(clipId: string): ProblemSeverity | null {
+  const problems = props.clipProblems?.[clipId];
+  if (!problems || problems.length === 0) return null;
+  if (problems.some(p => p.severity === 'error')) return 'error';
+  if (problems.some(p => p.severity === 'warning')) return 'warning';
+  if (problems.some(p => p.severity === 'info')) return 'info';
+  return null;
+}
+
+function isHighlighted(clipId: string): boolean {
+  return props.highlightClipIds?.includes(clipId) || false;
+}
+
+function getHighlightBorderClass(clipId: string): string {
+  if (!isHighlighted(clipId)) return '';
+  const worst = getWorstSeverityForClip(clipId);
+  if (worst === 'error') return 'ring-2 ring-danger ring-offset-2 ring-offset-graphite-900';
+  if (worst === 'warning') return 'ring-2 ring-warning ring-offset-2 ring-offset-graphite-900';
+  if (worst === 'info') return 'ring-2 ring-info ring-offset-2 ring-offset-graphite-900';
+  return 'ring-2 ring-brand-400 ring-offset-2 ring-offset-graphite-900';
+}
+
+function scrollToClip(clipId: string) {
+  nextTick(() => {
+    const el = clipElements.value[clipId];
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  });
+}
+
+watch(
+  () => props.highlightClipIds,
+  (newIds) => {
+    if (newIds && newIds.length > 0) {
+      scrollToClip(newIds[0]);
+    }
+  },
+  { immediate: true },
+);
 
 const ChapterIcons = {
   '开场': Play,
@@ -108,7 +161,14 @@ function clipDuration(clip: PlanClipWithDetail) {
       @end="onDragEnd"
     >
       <template #item="{ element, index }">
-        <div class="card p-4 transition-all duration-200 group animate-fade-in">
+        <div
+          :ref="(el) => setClipElement(element.clipId, el)"
+          class="card p-4 transition-all duration-300 group animate-fade-in"
+          :class="[
+            getHighlightBorderClass(element.clipId),
+            isHighlighted(element.clipId) ? 'animate-pulse' : '',
+          ]"
+        >
           <div class="flex gap-3">
             <div class="flex flex-col items-center gap-1 text-graphite-500 hover:text-brand-400 cursor-grab active:cursor-grabbing select-none opacity-30 group-hover:opacity-100 transition-all">
               <GripVertical class="w-5 h-5" />
@@ -121,6 +181,25 @@ function clipDuration(clip: PlanClipWithDetail) {
                     #{{ String(index + 1).padStart(2, '0') }}
                   </span>
                   <h4 class="font-display font-semibold text-graphite-50 truncate">{{ element.clip.title }}</h4>
+                  <span
+                    v-if="clipProblems?.[element.clipId]?.length > 0"
+                    class="flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded shrink-0"
+                    :class="getWorstSeverityForClip(element.clipId) === 'error'
+                      ? 'bg-danger/15 text-danger'
+                      : getWorstSeverityForClip(element.clipId) === 'warning'
+                        ? 'bg-warning/15 text-warning'
+                        : 'bg-info/15 text-info'"
+                  >
+                    <component
+                      :is="getWorstSeverityForClip(element.clipId) === 'error'
+                        ? AlertCircle
+                        : getWorstSeverityForClip(element.clipId) === 'warning'
+                          ? AlertTriangle
+                          : Info"
+                      class="w-3 h-3"
+                    />
+                    {{ clipProblems[element.clipId].length }}
+                  </span>
                 </div>
                 <div class="flex items-center gap-1 shrink-0">
                   <select
@@ -194,6 +273,31 @@ function clipDuration(clip: PlanClipWithDetail) {
                   >
                     {{ element.clip.publishStatus }}
                   </span>
+                </div>
+              </div>
+
+              <div
+                v-if="clipProblems?.[element.clipId]?.length > 0"
+                class="mt-2 space-y-1"
+              >
+                <div
+                  v-for="problem in clipProblems[element.clipId]"
+                  :key="problem.id"
+                  class="flex items-start gap-1.5 text-[11px] p-2 rounded-lg border"
+                  :class="problem.severity === 'error'
+                    ? 'bg-danger/10 border-danger/30 text-danger'
+                    : problem.severity === 'warning'
+                      ? 'bg-warning/10 border-warning/30 text-warning'
+                      : 'bg-info/10 border-info/30 text-info'"
+                >
+                  <component
+                    :is="problem.severity === 'error' ? AlertCircle : problem.severity === 'warning' ? AlertTriangle : Info"
+                    class="w-3 h-3 mt-0.5 shrink-0"
+                  />
+                  <div class="flex-1 min-w-0">
+                    <span class="font-medium">{{ problem.type }}：</span>
+                    <span class="opacity-90">{{ problem.message }}</span>
+                  </div>
                 </div>
               </div>
 

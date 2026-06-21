@@ -1,5 +1,14 @@
-import type { Clip, PublishPlan, PlanClipWithDetail } from '@/types';
+import type {
+  Clip,
+  PublishPlan,
+  PlanClipWithDetail,
+  QualityProblem,
+  QualitySnapshot,
+  ClipProblemInfo,
+  ProblemSeverity,
+} from '@/types';
 import { formatDuration } from '@/types';
+import { useQualityCheck } from './useQualityCheck';
 
 function escapeCsvValue(val: unknown): string {
   const str = String(val ?? '');
@@ -82,8 +91,30 @@ export function useExport() {
       .filter((e): e is PlanClipWithDetail => e !== null);
   }
 
-  function toPlanExportRow(entry: PlanClipWithDetail, index: number, cumulativeStart: number) {
+  function toPlanExportRow(
+    entry: PlanClipWithDetail,
+    index: number,
+    cumulativeStart: number,
+    clipProblems?: Record<string, QualityProblem[]>,
+  ) {
     const duration = Math.max(0, entry.clip.endTime - entry.clip.startTime);
+    const problems = clipProblems?.[entry.clipId] || [];
+    const problemTypes = problems.map(p => p.type).join('；');
+    const problemMessages = problems.map(p => `[${p.severity}] ${p.type}：${p.message}`).join('；');
+    const worstSeverity = problems.length > 0
+      ? (problems.some(p => p.severity === 'error')
+          ? 'error'
+          : problems.some(p => p.severity === 'warning')
+            ? 'warning'
+            : 'info')
+      : null;
+
+    const severityLabels: Record<ProblemSeverity, string> = {
+      error: '错误',
+      warning: '警告',
+      info: '提示',
+    };
+
     return {
       序号: index + 1,
       章节: entry.chapterType,
@@ -99,15 +130,43 @@ export function useExport() {
       剪辑动作: entry.clip.editAction,
       风险等级: entry.clip.riskLevel,
       发布状态: entry.clip.publishStatus,
+      问题数量: problems.length,
+      最高问题等级: worstSeverity ? severityLabels[worstSeverity] : '',
+      问题类型: problemTypes,
+      问题详情: problemMessages,
       备注: entry.clip.remark,
     };
   }
 
   function exportPlanToJSON(plan: PublishPlan, allClips: Clip[], filename?: string) {
     const entries = getPlanClipsWithDetail(plan, allClips);
+    const planClips = entries.map(e => e.clip);
+    const { problems, problemCounts, clipProblemMap, getWorstSeverity } = useQualityCheck(() => planClips);
+
+    let worstSeverity: ProblemSeverity | null = null;
+    for (const clip of planClips) {
+      const clipWorst = getWorstSeverity(clip.id);
+      if (clipWorst === 'error') {
+        worstSeverity = 'error';
+        break;
+      }
+      if (clipWorst === 'warning' && worstSeverity !== 'error') {
+        worstSeverity = 'warning';
+      }
+      if (clipWorst === 'info' && worstSeverity === null) {
+        worstSeverity = 'info';
+      }
+    }
+
+    const severityLabels: Record<ProblemSeverity, string> = {
+      error: '错误',
+      warning: '警告',
+      info: '提示',
+    };
+
     let cumulative = 0;
     const rows = entries.map((e, i) => {
-      const row = toPlanExportRow(e, i, cumulative);
+      const row = toPlanExportRow(e, i, cumulative, clipProblemMap.value);
       cumulative += Math.max(0, e.clip.endTime - e.clip.startTime);
       return row;
     });
@@ -121,6 +180,21 @@ export function useExport() {
       chapterStats[e.chapterType].count++;
       chapterStats[e.chapterType].duration += Math.max(0, e.clip.endTime - e.clip.startTime);
     }
+
+    const qualitySummary = {
+      错误数: problemCounts.value.error,
+      警告数: problemCounts.value.warning,
+      提示数: problemCounts.value.info,
+      问题总数: problemCounts.value.total,
+      最高风险等级: worstSeverity ? severityLabels[worstSeverity] : '无风险',
+      问题列表: problems.value.map(p => ({
+        严重程度: severityLabels[p.severity],
+        问题类型: p.type,
+        问题描述: p.message,
+        涉及片段数: p.clipIds.length,
+        涉及片段ID: p.clipIds,
+      })),
+    };
 
     const full = {
       exportedAt: new Date().toISOString(),
@@ -138,6 +212,7 @@ export function useExport() {
         总时长: formatDuration(totalDuration),
         总时长秒: Math.round(totalDuration * 100) / 100,
         章节统计: chapterStats,
+        质检摘要: qualitySummary,
       },
       clips: rows,
     };
@@ -148,9 +223,33 @@ export function useExport() {
 
   function exportPlanToCSV(plan: PublishPlan, allClips: Clip[], filename?: string) {
     const entries = getPlanClipsWithDetail(plan, allClips);
+    const planClips = entries.map(e => e.clip);
+    const { problems, problemCounts, clipProblemMap, getWorstSeverity } = useQualityCheck(() => planClips);
+
+    let worstSeverity: ProblemSeverity | null = null;
+    for (const clip of planClips) {
+      const clipWorst = getWorstSeverity(clip.id);
+      if (clipWorst === 'error') {
+        worstSeverity = 'error';
+        break;
+      }
+      if (clipWorst === 'warning' && worstSeverity !== 'error') {
+        worstSeverity = 'warning';
+      }
+      if (clipWorst === 'info' && worstSeverity === null) {
+        worstSeverity = 'info';
+      }
+    }
+
+    const severityLabels: Record<ProblemSeverity, string> = {
+      error: '错误',
+      warning: '警告',
+      info: '提示',
+    };
+
     let cumulative = 0;
     const rows = entries.map((e, i) => {
-      const row = toPlanExportRow(e, i, cumulative);
+      const row = toPlanExportRow(e, i, cumulative, clipProblemMap.value);
       cumulative += Math.max(0, e.clip.endTime - e.clip.startTime);
       return row;
     });
@@ -171,6 +270,18 @@ export function useExport() {
       ['计划状态', plan.status],
       ['总片段数', String(entries.length)],
       ['总时长', formatDuration(totalDuration)],
+      ['质检摘要'],
+      ['  错误数', String(problemCounts.value.error)],
+      ['  警告数', String(problemCounts.value.warning)],
+      ['  提示数', String(problemCounts.value.info)],
+      ['  问题总数', String(problemCounts.value.total)],
+      ['  最高风险等级', worstSeverity ? severityLabels[worstSeverity] : '无风险'],
+      ['问题列表'],
+      ...problems.value.map(p => [
+        `  [${severityLabels[p.severity]}] ${p.type}`,
+        p.message,
+        `涉及 ${p.clipIds.length} 个片段`,
+      ]),
       ['备注', plan.remark || ''],
       ['导出时间', new Date().toLocaleString()],
       [''],
