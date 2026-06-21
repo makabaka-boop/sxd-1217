@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { Waves, ClipboardCheck, Download, Github, FileJson, FileSpreadsheet, Database } from 'lucide-vue-next';
+import { Waves, ClipboardCheck, Download, Github, FileJson, FileSpreadsheet, Database, Layers } from 'lucide-vue-next';
 import { useClips } from '@/composables/useClips';
 import { useQualityCheck } from '@/composables/useQualityCheck';
+import { usePublishPlans } from '@/composables/usePublishPlans';
 import { useExport } from '@/composables/useExport';
 import { formatDuration } from '@/types';
 
@@ -11,6 +12,7 @@ const route = useRoute();
 const router = useRouter();
 const { clips, totalDuration, loadClips, insertSampleDataIfEmpty } = useClips();
 const { problemCounts } = useQualityCheck(() => clips.value);
+const { plans, planCount, loadPlans } = usePublishPlans();
 const { exportToJSON, exportToCSV, exportFullBackup } = useExport();
 
 const showExportMenu = ref(false);
@@ -18,17 +20,22 @@ const isDataLoaded = ref(false);
 
 onMounted(async () => {
   await loadClips();
+  await loadPlans();
   await insertSampleDataIfEmpty();
   await loadClips();
   isDataLoaded.value = true;
 });
 
 const currentTab = computed(() => {
-  return route.name === 'review' ? 'review' : 'clips';
+  if (route.name === 'review') return 'review';
+  if (route.name === 'plans' || route.name === 'plan-detail') return 'plans';
+  return 'clips';
 });
 
-function switchTab(tab: 'clips' | 'review') {
-  router.push(tab === 'clips' ? '/' : '/review');
+function switchTab(tab: 'clips' | 'review' | 'plans') {
+  if (tab === 'clips') router.push('/');
+  else if (tab === 'review') router.push('/review');
+  else router.push('/plans');
   showExportMenu.value = false;
 }
 
@@ -38,6 +45,7 @@ function closeMenu() {
 
 async function reloadData() {
   await loadClips();
+  await loadPlans();
 }
 </script>
 
@@ -65,6 +73,20 @@ async function reloadData() {
               >
                 <Waves class="w-4 h-4" />
                 片段管理
+              </button>
+              <button
+                class="nav-tab flex items-center gap-2"
+                :class="currentTab === 'plans' ? 'nav-tab-active' : 'nav-tab-inactive'"
+                @click="switchTab('plans')"
+              >
+                <Layers class="w-4 h-4" />
+                发布计划
+                <span
+                  v-if="planCount > 0"
+                  class="ml-0.5 min-w-[18px] h-[18px] rounded-full text-[10px] font-bold flex items-center justify-center px-1 bg-brand-400/20 text-brand-400"
+                >
+                  {{ planCount }}
+                </span>
               </button>
               <button
                 class="nav-tab flex items-center gap-2"

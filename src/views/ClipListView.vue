@@ -4,12 +4,15 @@ import draggable from 'vuedraggable';
 import { Plus, Waves } from 'lucide-vue-next';
 import { useClips } from '@/composables/useClips';
 import { useQualityCheck } from '@/composables/useQualityCheck';
+import { usePublishPlans } from '@/composables/usePublishPlans';
 import FilterBar from '@/components/FilterBar.vue';
 import ClipCard from '@/components/ClipCard.vue';
 import ClipEditor from '@/components/ClipEditor.vue';
 import QualityPanel from '@/components/QualityPanel.vue';
 import BatchActionBar from '@/components/BatchActionBar.vue';
-import type { Clip, ClipFormData, FilterOptions, PublishStatus, QualityProblem } from '@/types';
+import AddToPlanDialog from '@/components/AddToPlanDialog.vue';
+import PlanEditor from '@/components/PlanEditor.vue';
+import type { Clip, ClipFormData, FilterOptions, PublishStatus, QualityProblem, ChapterType } from '@/types';
 import { formatDuration } from '@/types';
 
 const {
@@ -39,6 +42,15 @@ const {
 } = useClips();
 
 const {
+  plans,
+  loadPlans,
+  createPlan,
+  calcPlanDuration,
+  addClipToPlan,
+  addClipsToPlan,
+} = usePublishPlans();
+
+const {
   problems,
   problemCounts,
   getProblemsForClip,
@@ -49,6 +61,19 @@ const showEditor = ref(false);
 const editingClip = ref<Clip | null>(null);
 const qualityExpanded = ref(true);
 const showEmpty = computed(() => clips.value.length === 0 && !isLoading.value);
+
+const showAddToPlanDialog = ref(false);
+const showPlanEditor = ref(false);
+const addToPlanClipId = ref<string | null>(null);
+const addToPlanIsBatch = ref(false);
+
+const planDurations = computed(() => {
+  const map: Record<string, number> = {};
+  for (const p of plans.value) {
+    map[p.id] = calcPlanDuration(p, clips.value);
+  }
+  return map;
+});
 
 const dragList = ref<Clip[]>([]);
 let isDragging = false;
@@ -148,8 +173,37 @@ function handleLocateProblem(p: QualityProblem) {
   }
 }
 
+function handleAddToPlan(clipId: string) {
+  addToPlanClipId.value = clipId;
+  addToPlanIsBatch.value = false;
+  showAddToPlanDialog.value = true;
+}
+
+function handleBatchAddToPlan() {
+  addToPlanIsBatch.value = true;
+  addToPlanClipId.value = null;
+  showAddToPlanDialog.value = true;
+}
+
+function handleConfirmAddToPlan(planId: string, chapterType: ChapterType) {
+  if (addToPlanIsBatch.value) {
+    const ids = Array.from(selectedIds.value);
+    addClipsToPlan(planId, ids, chapterType);
+    clearSelection();
+  } else if (addToPlanClipId.value) {
+    addClipToPlan(planId, addToPlanClipId.value, chapterType);
+  }
+}
+
+function handlePlanEditorSubmit(data: { title: string; publishTitle: string; remark: string }) {
+  createPlan(data).then(() => {
+    showPlanEditor.value = false;
+  });
+}
+
 onMounted(async () => {
   await loadClips();
+  await loadPlans();
   await insertSampleDataIfEmpty();
   await loadClips();
   await nextTick();
@@ -198,6 +252,7 @@ onMounted(async () => {
           @delete="handleBatchDelete"
           @clear="clearSelection"
           @select-all-visible="selectAll(true)"
+          @add-to-plan="handleBatchAddToPlan"
         />
 
         <div v-if="showEmpty" class="card p-16 flex flex-col items-center justify-center text-center min-h-[320px]">
@@ -241,6 +296,7 @@ onMounted(async () => {
                   @duplicate="handleDuplicate(element.id)"
                   @delete="handleDelete(element.id)"
                   @locate-problem="handleLocateProblem"
+                  @add-to-plan="handleAddToPlan(element.id)"
                 />
               </div>
             </template>
@@ -291,6 +347,19 @@ onMounted(async () => {
       :existing-topics="allTopics"
       :existing-speakers="allSpeakers"
       @submit="handleEditorSubmit"
+    />
+
+    <AddToPlanDialog
+      v-model="showAddToPlanDialog"
+      :plans="plans"
+      :plan-durations="planDurations"
+      @confirm="handleConfirmAddToPlan"
+      @create-new="showPlanEditor = true"
+    />
+
+    <PlanEditor
+      v-model="showPlanEditor"
+      @submit="handlePlanEditorSubmit"
     />
   </div>
 </template>

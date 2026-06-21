@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import {
-  GripVertical, Copy, Edit3, Trash2, Check, AlertTriangle, AlertCircle, Info, CopyPlus,
+  GripVertical, Copy, Edit3, Trash2, Check, AlertTriangle, AlertCircle, Info, CopyPlus, Layers,
 } from 'lucide-vue-next';
 import type { Clip, QualityProblem, ProblemSeverity } from '@/types';
 import {
@@ -17,6 +17,7 @@ const props = defineProps<{
   isSelected: boolean;
   problems?: QualityProblem[];
   worstSeverity?: ProblemSeverity | null;
+  showAddToPlan?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -25,6 +26,7 @@ const emit = defineEmits<{
   'duplicate': [];
   'delete': [];
   'locate-problem': [problem: QualityProblem];
+  'add-to-plan': [];
 }>();
 
 const duration = computed(() => Math.max(0, props.clip.endTime - props.clip.startTime));
@@ -101,6 +103,14 @@ const severityColors: Record<ProblemSeverity, string> = {
             </span>
           </div>
           <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+            <button
+              v-if="showAddToPlan !== false"
+              class="p-1.5 rounded-lg hover:bg-graphite-700 text-graphite-400 hover:text-brand-400 transition-colors"
+              title="加入发布计划"
+              @click.stop="emit('add-to-plan')"
+            >
+              <Layers class="w-4 h-4" />
+            </button>
             <button
               class="p-1.5 rounded-lg hover:bg-graphite-700 text-graphite-400 hover:text-info transition-colors"
               title="复制为备选版本"

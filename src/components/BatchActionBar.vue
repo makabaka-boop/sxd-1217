@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Scissors, CheckCircle, Volume2, Ban, Trash2, X, CheckSquare } from 'lucide-vue-next';
+import { Scissors, CheckCircle, Volume2, Ban, Trash2, X, CheckSquare, Layers } from 'lucide-vue-next';
 import type { PublishStatus } from '@/types';
 
 defineProps<{
@@ -12,6 +12,7 @@ const emit = defineEmits<{
   'delete': [];
   'clear': [];
   'select-all-visible': [];
+  'add-to-plan': [];
 }>();
 
 const actions: { status: PublishStatus; icon: typeof Scissors; label: string; cls: string }[] = [
@@ -55,6 +56,13 @@ const actions: { status: PublishStatus; icon: typeof Scissors; label: string; cl
       <div class="h-6 w-px bg-graphite-700" />
 
       <div class="flex items-center gap-2">
+        <button
+          class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-brand-400/90 hover:bg-brand-400 text-white transition-all"
+          @click="emit('add-to-plan')"
+        >
+          <Layers class="w-3.5 h-3.5" />
+          加入发布计划
+        </button>
         <button
           class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-graphite-700 hover:bg-graphite-600 text-graphite-200 transition-all"
           @click="emit('select-all-visible')"
