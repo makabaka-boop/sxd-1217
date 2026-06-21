@@ -61,7 +61,8 @@ const severityColors: Record<ProblemSeverity, string> = {
   >
     <div class="flex gap-3">
       <div
-        class="flex flex-col items-center gap-1 text-graphite-500 cursor-grab active:cursor-grabbing select-none opacity-0 group-hover:opacity-100 transition-opacity"
+        class="flex flex-col items-center gap-1 text-graphite-500 hover:text-brand-400 cursor-grab active:cursor-grabbing select-none opacity-30 group-hover:opacity-100 transition-all"
+        title="拖拽排序"
       >
         <GripVertical class="w-5 h-5" />
       </div>

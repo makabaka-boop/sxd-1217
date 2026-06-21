@@ -23,11 +23,11 @@ const clipsSorted = computed(() =>
 );
 
 const publishable = computed(() =>
-  clipsSorted.value.filter(c => c.publishStatus === '已剪辑'),
+  clipsSorted.value.filter(c => c.publishStatus === '已剪辑' && !c.isAlternate),
 );
 
 const needReview = computed(() =>
-  clipsSorted.value.filter(c => c.publishStatus === '需复听'),
+  clipsSorted.value.filter(c => c.publishStatus === '需复听' && !c.isAlternate),
 );
 
 const excluded = computed(() =>

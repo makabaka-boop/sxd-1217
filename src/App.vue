@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { Waves, ClipboardCheck, Download, Github, FileJson, FileSpreadsheet, Database } from 'lucide-vue-next';
 import { useClips } from '@/composables/useClips';
@@ -9,11 +9,19 @@ import { formatDuration } from '@/types';
 
 const route = useRoute();
 const router = useRouter();
-const { clips, totalDuration, loadClips } = useClips();
+const { clips, totalDuration, loadClips, insertSampleDataIfEmpty } = useClips();
 const { problemCounts } = useQualityCheck(() => clips.value);
 const { exportToJSON, exportToCSV, exportFullBackup } = useExport();
 
 const showExportMenu = ref(false);
+const isDataLoaded = ref(false);
+
+onMounted(async () => {
+  await loadClips();
+  await insertSampleDataIfEmpty();
+  await loadClips();
+  isDataLoaded.value = true;
+});
 
 const currentTab = computed(() => {
   return route.name === 'review' ? 'review' : 'clips';

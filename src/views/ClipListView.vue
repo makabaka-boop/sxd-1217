@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, nextTick } from 'vue';
+import { ref, computed, watch, onMounted, nextTick } from 'vue';
 import draggable from 'vuedraggable';
 import { Plus, Waves } from 'lucide-vue-next';
 import { useClips } from '@/composables/useClips';
@@ -49,7 +49,23 @@ const showEditor = ref(false);
 const editingClip = ref<Clip | null>(null);
 const qualityExpanded = ref(true);
 const showEmpty = computed(() => clips.value.length === 0 && !isLoading.value);
+
 const dragList = ref<Clip[]>([]);
+let isDragging = false;
+
+function syncDragList() {
+  if (isDragging) return;
+  dragList.value = [...filteredClips.value];
+}
+
+watch(filteredClips, (newVal, oldVal) => {
+  if (isDragging) return;
+  const newIds = newVal.map(c => c.id).join(',');
+  const oldIds = oldVal?.map(c => c.id).join(',');
+  if (newIds !== oldIds) {
+    dragList.value = [...newVal];
+  }
+}, { deep: true });
 
 function openCreate() {
   editingClip.value = null;
@@ -67,6 +83,7 @@ async function handleEditorSubmit(data: ClipFormData) {
   } else {
     await createClip(data);
   }
+  await nextTick();
   syncDragList();
 }
 
@@ -75,20 +92,33 @@ function handleDelete(id: string) {
   if (!clip) return;
   if (confirm(`确定删除片段「${clip.title}？`)) {
     removeClip(id);
-    syncDragList();
+    nextTick(() => syncDragList());
   }
 }
 
 function handleDuplicate(id: string) {
-  duplicateClipAsAlternate(id).then(() => syncDragList());
+  duplicateClipAsAlternate(id).then(() => {
+    nextTick(() => syncDragList());
+  });
 }
 
-async function handleReorder() {
-  await reorderClips(dragList.value);
+function onDragStart() {
+  isDragging = true;
 }
 
-function syncDragList() {
-  dragList.value = [...filteredClips.value];
+async function onDragEnd() {
+  isDragging = false;
+  const orderedIds = dragList.value.map(c => c.id);
+  const fullList = [...clips.value];
+  
+  const orderedClips = orderedIds.map(id => fullList.find(c => c.id === id)!).filter(Boolean);
+  const remaining = fullList.filter(c => !orderedIds.includes(c.id));
+  
+  const finalList = [...orderedClips, ...remaining];
+  await reorderClips(finalList);
+  
+  await nextTick();
+  syncDragList();
 }
 
 function handleFilterUpdate<K extends keyof FilterOptions>(key: K, value: FilterOptions[K]) {
@@ -124,26 +154,6 @@ onMounted(async () => {
   await loadClips();
   await nextTick();
   syncDragList();
-});
-
-const visibleList = computed({
-  get: () => filteredClips.value,
-  set: (val: Clip[]) => {
-    const fullList = [...clips.value];
-    const filteredIds = new Set(filteredClips.value.map(c => c.id));
-    const remaining = fullList.filter(c => !filteredIds.has(c.id));
-    const merged = [...val, ...remaining];
-    merged.sort((a, b) => {
-      const ia = val.findIndex(x => x.id === a.id);
-      const ib = val.findIndex(x => x.id === b.id);
-      if (ia >= 0 && ib >= 0) return ia - ib;
-      if (ia >= 0) return -1;
-      if (ib >= 0) return 1;
-      return a.sortOrder - b.sortOrder;
-    });
-    clips.value = merged;
-    handleReorder();
-  },
 });
 </script>
 
@@ -190,7 +200,7 @@ const visibleList = computed({
           @select-all-visible="selectAll(true)"
         />
 
-        <div v-if="showEmpty" class="card p-16 flex flex-col items-center justify-center text-center min-h-[320px">
+        <div v-if="showEmpty" class="card p-16 flex flex-col items-center justify-center text-center min-h-[320px]">
           <div class="p-4 rounded-3xl bg-graphite-700/60 mb-4">
             <Waves class="w-12 h-12 text-graphite-400" />
           </div>
@@ -206,21 +216,23 @@ const visibleList = computed({
 
         <div v-else class="space-y-3">
           <draggable
-            v-model="visibleList"
+            v-model="dragList"
             item-key="id"
-            handle=".cursor-grab, .cursor-grabbing"
             animation="200"
             ghost-class="sortable-ghost"
             chosen-class="sortable-chosen"
             drag-class="sortable-drag"
-            class="space-y-3"
-            @end="handleReorder"
+            class="space-y-3 cursor-grab active:cursor-grabbing"
+            filter="button, input, textarea, select, a, [contenteditable]"
+            prevent-on-filter
+            @start="onDragStart"
+            @end="onDragEnd"
           >
             <template #item="{ element, index }">
               <div :data-clip-id="element.id" class="transition-all">
                 <ClipCard
                   :clip="element"
-                  :index="clips.findIndex(c => c.id === element.id)"
+                  :index="index"
                   :is-selected="selectedIds.has(element.id)"
                   :problems="getProblemsForClip(element.id)"
                   :worst-severity="getWorstSeverity(element.id)"
